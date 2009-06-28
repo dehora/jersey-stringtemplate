@@ -33,15 +33,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * StringTemplate Provider for Jersey
+ * <p>StringTemplate Provider for Jersey</p>
  * <p/>
  * <p>You can configure the location of your templates with the
  * context param 'stringtemplate.template.path'. The default is set
- * to <tt>WEB-INF/templates</tt>. The StringTemplateGroup is called 'stgrp'.
+ * to <tt>WEB-INF/templates</tt>.
  * The provider matches files with the extension ".st"
  * </p>
- * Example of configuring the template path:
- * <p/>
+ * <p>Example of configuring the template path:</p>
  * <pre>
  * <web-app ...
  *    <display-name>StringTemplateProvider/display-name>
@@ -52,13 +51,13 @@ import java.util.Map;
  *   ...
  * </pre>
  * <p/>
- * <p>You'll also need to tell Jersey the package where this provider
- * is stored using the "com.sun.jersey.config.property.packages" property</p>
- * <p/>
  * <p>The provider puts the Viewable's model object the variable
  * "it" (as per Jersey's JSP provider), If the model is a Map the values
  * will be set directly into the template. The code assumes the Map is
  * a <tt>Map<String,Object></tt>.</p>
+ * <p/>
+ * <p>You'll also need to tell Jersey the package where this provider
+ * is stored using the "com.sun.jersey.config.property.packages" property</p>
  */
 
 @Provider
@@ -80,20 +79,22 @@ public class StringTemplateProvider implements TemplateProcessor {
         if (_theLog.isDebugEnabled()) {
             _theLog.debug("Resolving template path [" + path + "]");
         }
-        // ST doesn't want the file extension
-        final String relativeTemplatePath = path.endsWith(EXTENSION) ? path.substring(0, path.length() - 3) : path;
+
+        // StringTemplate doesn't want the file extension, so don't send it back 
+        final String relativeTemplatePathNoExtension = path.endsWith(EXTENSION) ? path.substring(0, path.length() - 3) : path;
+        final String fullTemplatePathNoExtension = getTemplatesBasePath() + relativeTemplatePathNoExtension;
+        boolean templateFound = false;
+
         try {
-            final String fullTemplatePath = getTemplatesBasePath() + relativeTemplatePath;
-            final boolean templateFound = _servletContext.getResource(fullTemplatePath + EXTENSION) != null;
-            if (!templateFound) {
-                _theLog.info("Template not found [path: " + path + "] [context path: " + fullTemplatePath + "]");
-                return null;
-            } else {
-                return fullTemplatePath;
-            }
+            templateFound = _servletContext.getResource(fullTemplatePathNoExtension + EXTENSION) != null;
+        } catch (MalformedURLException e) {
+            _theLog.warn("Malformed URL finding template [" + relativeTemplatePathNoExtension + "] from the servlet context", e);
         }
-        catch (MalformedURLException e) {
-            _theLog.warn("Malformed URL in finding template [" + relativeTemplatePath + "] from the servlet context: " + e.getMessage());
+
+        if (templateFound) {
+            return fullTemplatePathNoExtension;
+        } else {
+            _theLog.info("Template not found, path to resolve [" + path + "] context check path [" + fullTemplatePathNoExtension + EXTENSION + "]");
             return null;
         }
     }
@@ -104,13 +105,14 @@ public class StringTemplateProvider implements TemplateProcessor {
             _theLog.debug("Processing template [" + resolvedPath + "] with model of type " + (model == null ? "null" : model.getClass().getSimpleName()));
         }
         out.flush();
-        final StringTemplate template = getTemplateFor(resolvedPath);
+        
+        final StringTemplate template = getInstanceOf(resolvedPath);
         if (_theLog.isDebugEnabled()) {
             _theLog.debug("OK: Resolved template [" + resolvedPath + "]");
         }
+
         final OutputStreamWriter writer = new OutputStreamWriter(out);
-        final Map<String, Object> templateModel = loadModel(model);
-        template.setAttributes(templateModel);
+        template.setAttributes(loadModel(model));
         try {
             writer.write(template.toString());
             writer.flush();
@@ -119,11 +121,18 @@ public class StringTemplateProvider implements TemplateProcessor {
             }
         }
         catch (Throwable t) {
-            _theLog.error("Error processing template [" + resolvedPath + "] " + t.getMessage(), t);
+            _theLog.error("Error processing template [" + resolvedPath + "] ", t);
             out.write("<pre class='template-err'>".getBytes());
             t.printStackTrace(new PrintStream(out));
             out.write("</pre>".getBytes());
         }
+    }
+
+    @Context
+    public void setServletContext(final ServletContext context) {
+        _servletContext = context;
+        setTemplateBasePath(context);
+        _theStringTemplateGroup = new WebInfCompatibleStringTemplateGroup(_servletContext);
     }
 
     @SuppressWarnings({"unchecked"})
@@ -139,15 +148,16 @@ public class StringTemplateProvider implements TemplateProcessor {
         return templateModel;
     }
 
-    private StringTemplate getTemplateFor(String resolvedPath) throws IOException {
-        return _theStringTemplateGroup.getInstanceOf(resolvedPath);
+    private String getTemplatesBasePath() {
+        return _templatesBasePath;
     }
 
-    @Context
-    public void setServletContext(final ServletContext context) {
-        this._servletContext = context;
-        setTemplateBasePath(context);
-        _theStringTemplateGroup = new WebInfCompatibleStringTemplateGroup(_servletContext);
+    private void setTemplatesBasePath(String _templatesBasePath) {
+        this._templatesBasePath = _templatesBasePath;
+    }
+
+    private StringTemplate getInstanceOf(String resolvedPath) throws IOException {
+        return _theStringTemplateGroup.getInstanceOf(resolvedPath);
     }
 
     private void setTemplateBasePath(ServletContext context) {
@@ -158,20 +168,11 @@ public class StringTemplateProvider implements TemplateProcessor {
         }
     }
 
-    public String getTemplatesBasePath() {
-        return _templatesBasePath;
-    }
-
-    public void setTemplatesBasePath(String _templatesBasePath) {
-        this._templatesBasePath = _templatesBasePath;
-    }
-
-
-    class WebInfCompatibleStringTemplateGroup extends StringTemplateGroup {
+    private class WebInfCompatibleStringTemplateGroup extends StringTemplateGroup {
 
         private ServletContext _context;
 
-        public WebInfCompatibleStringTemplateGroup(ServletContext ctx) {
+        WebInfCompatibleStringTemplateGroup(ServletContext ctx) {
             super("templates", null, DefaultTemplateLexer.class);
             _context = ctx;
         }
@@ -181,7 +182,7 @@ public class StringTemplateProvider implements TemplateProcessor {
             StringTemplate template = null;
             BufferedReader bufferedReader = null;
             try {
-                URL target  = _context.getResource(templateResourcePath);
+                URL target = _context.getResource(templateResourcePath);
                 InputStream inputStream = target.openStream();
                 InputStreamReader inputStreamReader = getInputStreamReader(inputStream);
                 bufferedReader = new BufferedReader(inputStreamReader);
@@ -198,7 +199,7 @@ public class StringTemplateProvider implements TemplateProcessor {
                     try {
                         bufferedReader.close();
                     } catch (IOException inner) {
-                        error("Cannot close connection for template [" + templateResourcePath+"]",inner);
+                        error("Cannot close connection for template [" + templateResourcePath + "]", inner);
                     }
                 }
             }

@@ -1,1 +1,10 @@
-<h3>Hi! My template name is $viewName$</h3>
+<html><head></head>
+<body>
+<h3>Hi!</h3>
+
+<ul>
+<li> My template name is $viewName$</li>
+<li> My url is $url$</li>
+</ul>
+</body>
+</html>

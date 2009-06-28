@@ -22,20 +22,24 @@ import com.sun.jersey.api.view.Viewable;
 
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.UriInfo;
+import javax.ws.rs.core.Context;
 import java.util.HashMap;
 
 @Path("/{view}")
 @PerRequest
-public class Pages
-{
+public class Pages {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public Viewable get(
+            @Context final UriInfo uriInfo,
             @DefaultValue("home")
             @PathParam("view") final String view) throws Exception {
         HashMap<String, Object> templateModel = new HashMap<String, Object>() {{
-                put("viewName", view);
-            }};
+            put("viewName", view);
+            put("url", uriInfo.getRequestUri());
+
+        }};
         return new Viewable("/" + view + ".st", templateModel);
     }
 
