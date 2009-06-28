@@ -1,0 +1,1 @@
+<h3>Hi! My template name is $viewName$</h3>

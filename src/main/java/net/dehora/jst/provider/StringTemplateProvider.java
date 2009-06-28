@@ -26,24 +26,22 @@ import org.apache.log4j.Logger;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.ext.Provider;
 import javax.servlet.ServletContext;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintStream;
+import java.io.*;
 import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * StringTemplate Provider for Jersey
- *
+ * <p/>
  * <p>You can configure the location of your templates with the
  * context param 'stringtemplate.template.path'. The default is set
  * to <tt>WEB-INF/templates</tt>. The StringTemplateGroup is called 'stgrp'.
  * The provider matches files with the extension ".st"
  * </p>
  * Example of configuring the template path:
- *
+ * <p/>
  * <pre>
  * <web-app ...
  *    <display-name>StringTemplateProvider/display-name>
@@ -52,26 +50,26 @@ import java.util.Map;
  *       <param-value>/WEB-INF/pages</param-value>
  *   </context-param>
  *   ...
- *</pre>
- *
+ * </pre>
+ * <p/>
  * <p>You'll also need to tell Jersey the package where this provider
  * is stored using the "com.sun.jersey.config.property.packages" property</p>
- *
+ * <p/>
  * <p>The provider puts the Viewable's model object the variable
  * "it" (as per Jersey's JSP provider), If the model is a Map the values
  * will be set directly into the template. The code assumes the Map is
  * a <tt>Map<String,Object></tt>.</p>
- *
  */
 
 @Provider
-public class StringTemplateProvider implements TemplateProcessor
-{
+public class StringTemplateProvider implements TemplateProcessor {
+
     private static final String STRINGTEMPLATE_TEMPLATE_PATH = "stringtemplate.template.path";
     private static final String WEB_INF_TEMPLATES = "/WEB-INF/templates";
-    private static final String EXTENSION = "st";
+    private static final String EXTENSION = ".st";
     private static final Logger _theLog = Logger.getLogger(StringTemplateProvider.class);
     private static StringTemplateGroup _theStringTemplateGroup;
+
     private ServletContext _servletContext;
     private String _templatesBasePath;
 
@@ -82,17 +80,20 @@ public class StringTemplateProvider implements TemplateProcessor
         if (_theLog.isDebugEnabled()) {
             _theLog.debug("Resolving template path [" + path + "]");
         }
-        final String filePath = path.endsWith(EXTENSION) ? path : path + "." + EXTENSION;
+        // ST doesn't want the file extension
+        final String relativeTemplatePath = path.endsWith(EXTENSION) ? path.substring(0, path.length() - 3) : path;
         try {
-            final String fullPath = _templatesBasePath + filePath;
-            final boolean templateFound = _servletContext.getResource(fullPath) != null;
+            final String fullTemplatePath = getTemplatesBasePath() + relativeTemplatePath;
+            final boolean templateFound = _servletContext.getResource(fullTemplatePath + EXTENSION) != null;
             if (!templateFound) {
-                _theLog.warn("Template not found [path: " + path + "] [context path: " + fullPath + "]");
+                _theLog.info("Template not found [path: " + path + "] [context path: " + fullTemplatePath + "]");
+                return null;
+            } else {
+                return fullTemplatePath;
             }
-            return templateFound ? filePath : null;
         }
         catch (MalformedURLException e) {
-            _theLog.warn("Malformed URL in finding template [" + filePath + "] from the servlet context: " + e.getMessage());
+            _theLog.warn("Malformed URL in finding template [" + relativeTemplatePath + "] from the servlet context: " + e.getMessage());
             return null;
         }
     }
@@ -112,6 +113,7 @@ public class StringTemplateProvider implements TemplateProcessor
         template.setAttributes(templateModel);
         try {
             writer.write(template.toString());
+            writer.flush();
             if (_theLog.isDebugEnabled()) {
                 _theLog.debug("OK: Processed template [" + resolvedPath + "]");
             }
@@ -130,10 +132,9 @@ public class StringTemplateProvider implements TemplateProcessor
         if (model instanceof Map) {
             templateModel = new HashMap<String, Object>((Map<String, Object>) model);
         } else {
-            templateModel = new HashMap<String, Object>()
-            {{
-                    put("it", model);
-                }};
+            templateModel = new HashMap<String, Object>() {{
+                put("it", model);
+            }};
         }
         return templateModel;
     }
@@ -145,12 +146,63 @@ public class StringTemplateProvider implements TemplateProcessor
     @Context
     public void setServletContext(final ServletContext context) {
         this._servletContext = context;
-        _templatesBasePath = context.getInitParameter(STRINGTEMPLATE_TEMPLATE_PATH);
-        if (_templatesBasePath== null || "".equals(_templatesBasePath)) {
+        setTemplateBasePath(context);
+        _theStringTemplateGroup = new WebInfCompatibleStringTemplateGroup(_servletContext);
+    }
+
+    private void setTemplateBasePath(ServletContext context) {
+        setTemplatesBasePath(context.getInitParameter(STRINGTEMPLATE_TEMPLATE_PATH));
+        if (getTemplatesBasePath() == null || "".equals(getTemplatesBasePath())) {
             _theLog.info("No '" + STRINGTEMPLATE_TEMPLATE_PATH + "' in context-param, defaulting to '" + WEB_INF_TEMPLATES + "'");
-            _templatesBasePath = WEB_INF_TEMPLATES;
+            setTemplatesBasePath(WEB_INF_TEMPLATES);
         }
-        _templatesBasePath = _templatesBasePath.replaceAll("/$", "");
-        _theStringTemplateGroup = new StringTemplateGroup("stgrp", _templatesBasePath, DefaultTemplateLexer.class);
+    }
+
+    public String getTemplatesBasePath() {
+        return _templatesBasePath;
+    }
+
+    public void setTemplatesBasePath(String _templatesBasePath) {
+        this._templatesBasePath = _templatesBasePath;
+    }
+
+
+    class WebInfCompatibleStringTemplateGroup extends StringTemplateGroup {
+
+        private ServletContext _context;
+
+        public WebInfCompatibleStringTemplateGroup(ServletContext ctx) {
+            super("templates", null, DefaultTemplateLexer.class);
+            _context = ctx;
+        }
+
+        @Override
+        protected StringTemplate loadTemplateFromBeneathRootDirOrCLASSPATH(String templateResourcePath) {
+            StringTemplate template = null;
+            BufferedReader bufferedReader = null;
+            try {
+                URL target  = _context.getResource(templateResourcePath);
+                InputStream inputStream = target.openStream();
+                InputStreamReader inputStreamReader = getInputStreamReader(inputStream);
+                bufferedReader = new BufferedReader(inputStreamReader);
+                template = loadTemplate(name, bufferedReader);
+                bufferedReader.close();
+                bufferedReader = null;
+            } catch (MalformedURLException e) {
+                error("Malformed URL in finding template[" + templateResourcePath + "] from the servlet context" + e.getMessage(), e);
+            } catch (IOException e) {
+                error("Can't load [" + templateResourcePath + "] from the servlet context", e);
+            }
+            finally {
+                if (bufferedReader != null) {
+                    try {
+                        bufferedReader.close();
+                    } catch (IOException inner) {
+                        error("Cannot close template connection: " + templateResourcePath);
+                    }
+                }
+            }
+            return template;
+        }
     }
 }
