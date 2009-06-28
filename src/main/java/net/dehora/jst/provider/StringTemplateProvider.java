@@ -198,7 +198,7 @@ public class StringTemplateProvider implements TemplateProcessor {
                     try {
                         bufferedReader.close();
                     } catch (IOException inner) {
-                        error("Cannot close template connection: " + templateResourcePath);
+                        error("Cannot close connection for template [" + templateResourcePath+"]",inner);
                     }
                 }
             }
