@@ -58,8 +58,8 @@ import java.util.Map;
  * is stored using the "com.sun.jersey.config.property.packages" property</p>
  *
  * <p>The provider puts the Viewable's model object the variable
- * "it" (as per Jersey's JSP provider), If the model is a Map. If so, the values
- * will be set directly into the template. The code assumes the map is of
+ * "it" (as per Jersey's JSP provider), If the model is a Map the values
+ * will be set directly into the template. The code assumes the Map is
  * a <tt>Map<String,Object></tt>.</p>
  *
  */
